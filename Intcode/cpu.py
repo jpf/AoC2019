@@ -143,6 +143,7 @@ class IntOp:
         self.parameters = []
         self.param = {}
         self.cpu = None
+        self.name = type(self).__name__
         self.setup()
 
     def setup(self):
@@ -152,9 +153,7 @@ class IntOp:
         pass
 
     def __repr__(self):
-        name = type(self).__name__
-        # return(f"{self.opcode} {name}")
-        return(f"{name}")
+        return(f"{self.name}")
 
 
 class Add(IntOp):
@@ -197,7 +196,11 @@ class Write(IntOp):
             Parameter(name="Target", kind="Output")
             ]
     def op(self):
-        self.cpu.data_out.append(self.cpu.memory[self.param["Target"]])
+        output = self.cpu.memory[self.param["Target"]]
+        if self.cpu.show_output:
+            print(output)
+        self.cpu.data_out.append(output)
+        self.cpu.pause = True
 
 class JumpTrue(IntOp):
     def setup(self):
@@ -272,7 +275,7 @@ class Halt(IntOp):
         self.cpu.running = False
         
 
-class TestCPU:
+class IntcodeCPU:
     def __init__(self):
         self.instructions = [
             Add(),
@@ -291,313 +294,25 @@ class TestCPU:
             self.opcodes[instruction.opcode] = instruction
         self.reset()
 
+
     def reset(self):
-        self.memory = []
-        self.instruction_pointer = 0
-        self.relative_base = 0
-        self.running = True
+        self.pause = False
         self.data_in = []
         self.data_out = []
-
-    def load_instruction(self):
-        def id(kind):
-            if kind == "0":
-                return "Position"
-            elif kind == "1":
-                return "Immediate"
-            elif kind == "2":
-                return "Relative"
-            else:
-                return "Unknown"
-        raw_opcode = self.memory[self.instruction_pointer]
-        debug(f"LOAD INSTRUCTION: {raw_opcode}")
-        abcde = str(raw_opcode)
-        while(len(abcde) < 5):
-            abcde = "0" + abcde
-        opcode = int(abcde[3:])
-        if opcode in self.opcodes:
-            instruction = self.opcodes[opcode]
-        else:
-            print(f"Unrecognized opcode: {opcode}")
-            sys.exit(100)
-
-        self.instruction_pointer += 1
-        mode = [id(x) for x in list(abcde[0:3])]
-        for index, parameter in enumerate(instruction.parameters):
-            address = 0
-            parameter.mode = mode.pop()
-            if parameter.mode == "Immediate":
-                address = self.instruction_pointer
-            elif parameter.mode == "Position":
-                address = self.memory[self.instruction_pointer]
-            elif parameter.mode == "Relative":
-                value = self.memory[self.instruction_pointer]
-                address = self.relative_base + value
-            else:
-                print("Unable to determine mode")
-                sys.exit(100)
-            if address >= len(self.memory):
-                size = address - len(self.memory) + 2
-                debug(f"extending memory by: {size}")
-                padding = [0 for i in range(size)]
-                self.memory += padding
-            if parameter.kind == "Output":
-                instruction.param[parameter.name] = address
-            else:
-                instruction.param[parameter.name] = self.memory[address]
-            self.instruction_pointer += 1
-            ipidx = self.instruction_pointer
-            debug(f"Mode: {parameter.mode} Name {parameter.name} Value {instruction.param[parameter.name]} ip+idx {ipidx}")
-        # instruction.offset = len(instruction.parameters) + 1
-        return instruction
-
-
-    def go(self):
-        while(self.running):
-            debug(f"ip: {self.instruction_pointer}\t raw opcode: {self.memory[self.instruction_pointer]}")
-            instruction = self.load_instruction()
-            instruction.cpu = self
-            instruction.op()
-
-            
-    def setup(self):
-        debug(self.opcodes)
-
-    def post(self):
-        print("Power on self test .", end='')
-        sys.stdout.flush()
-        for test in test_vectors:
-            self.reset()
-            debug("\n----- RESET -----\n")
-            if 'name' in test:
-                debug(f"Running test {test['name']}")
-            if 'input' in test:
-                self.data_in = test['input']
-            got = self.memory = test['in']
-            debug(f"Test input: {got}")
-            while self.running:
-                self.go()
-            
-            if 'out' in test and test['out'] != got:
-                want = test['out']
-                print(f"\nWant {want}\nGot  {got}\n")
-                sys.exit(1)
-            if 'output' in test and test['output'] != self.data_out:
-                want = test['output']
-                got  = self.data_out
-                print(f"\nWanted out {want}\nGot        {got}\n")
-                sys.exit(2)
-            print(".", end='')
-            sys.stdout.flush()
-        print(" done")
-   
-
-        
-symbols = {
-    1: {
-        "name": "Add",
-        "parameters": [
-            {"name": "A"},
-            {"name": "B"},
-            {"name": "Target", "kind": "Output"},
-        ],
-    },
-    2: {
-        "name": "Multiply",
-        "parameters": [
-            {"name": "A"},
-            {"name": "B"},
-            {"name": "Target", "kind": "Output"},
-        ],
-    },
-    3: {
-        "name": "Read",
-        "parameters": [
-            {"name": "Input"},
-        ],
-    },
-    4: {
-        "name": "Write",
-        "parameters": [
-            {"name": "Target", "kind": "Output"},
-        ],
-    },
-    5: {
-        "name": "Jump-True",
-        "parameters": [
-            {"name": "Test"},
-            {"name": "Location"},
-        ],
-    },
-    6: {
-        "name": "Jump-False",
-        "parameters": [
-            {"name": "Test"},
-            {"name": "Location"},
-        ],
-    },
-    7: {
-        "name": "Less-Than",
-        "parameters": [
-            {"name": "A"},
-            {"name": "B"},
-            {"name": "Answer", "kind": "Output"},
-        ],
-    },
-    8: {
-        "name": "Equals",
-        "parameters": [
-            {"name": "A"},
-            {"name": "B"},
-            {"name": "Answer", "kind": "Output"},
-        ],
-    },
-    9: {
-        "name": "Increment-Relative-Base",
-        "parameters": [
-            {"name": "Value"},
-        ],
-    },
-    99: {
-        "name": "Halt",
-        "parameters": [
-        ],
-    },
-}
-
-class IntcodeCPU:
-    def __init__(self):
-        self.reset()
-        
-    def reset(self):
         self.instruction_pointer = 0
-        self.token_pointer = 0
-        self.show_output = False
         self.memory = []
-        self.tokens = []
-        self.data_in = []
-        self.output = []
-        self.running = True
         self.relative_base = 0
+        self.running = True
+        self.show_output = False
+        self.token_pointer = 0
 
-    def extend(self, addr):
-        if addr >= len(self.memory):
-            size = addr - len(self.memory) + 2
-            debug(f"extending memory by: {size}")
-            padding = [0 for i in range(size)]
-            self.memory += padding
-            debug(self.memory)
-        
-    def load_params(self, num=3, mode=[]):
-        width = num + 1
-        output = []
 
-        # "Parameters that an instruction writes to will never be in immediate mode."
-        # (read/write/jump)
-        # This code caused me several hours of heartache!!!
-        # if num > 2 and mode[width - 1] != POSITION_MODE:
-        # This fucking code bit my ass again on day 9
-        if num >= 3 and mode[3] == POSITION_MODE:
-            mode[3] = IMMEDIATE_MODE
-        debug(f"load_params ip: {self.instruction_pointer}")
-        start = self.instruction_pointer
-        end = self.instruction_pointer + width
-        debug(f"load_params input: {self.memory[start:end]}")
-        for arg in range(1, width):
-            debug(f"load_params mode:  {mode[arg]}")
-            if mode[arg] == IMMEDIATE_MODE:
-                addr = self.instruction_pointer + arg
-                # output.append(self.memory[self.instruction_pointer + arg])
-            elif mode[arg] == POSITION_MODE:
-                addr = self.memory[self.instruction_pointer + arg]
-                # output.append(self.memory[position])
-            elif mode[arg] == RELATIVE_MODE:
-                value = self.memory[self.instruction_pointer + arg]
-                loc = self.relative_base + value
-                # self.relative_base += value
-                # loc = self.relative_base
-                addr = loc
-                self.extend(addr)
-                debug(f"relative mode adr: {addr}")
-                debug(f"relative mode val: {self.memory[addr]}")
-                # output.append(self.memory[position])
-            else:
-                print("Unable to determine mode")
-                sys.exit(100)
-            self.extend(addr)
-            if arg == 3 and mode[arg] == RELATIVE_MODE:
-                output.append(addr)
-            else:
-                output.append(self.memory[addr])
-                
-        # output.append(self.memory[self.instruction_pointer + width]) # target
+    @property
+    def output(self):
+        return self.data_out
 
-        self.offset = width
-        debug(f"params: {output}")
-        if len(output) == 1:
-            return(output[0])
-        else:
-            return(output)
 
-    def load_opcode(self):
-        raw_opcode = self.memory[self.instruction_pointer]
-        abcde = str(raw_opcode)
-        while(len(abcde) < 5):
-            abcde = "0" + abcde
-        opcode = int(abcde[3:])
-        mode = [
-            None, # No mode needed for the opcode
-            abcde[2],
-            abcde[1],
-            abcde[0],
-        ]
-        return opcode, mode
-
-    def dump_memory(self):
-        if not DEBUG:
-            return
-        self.explain()
-
-    def post(self):
-        print("Power on self test .", end='')
-        sys.stdout.flush()
-        for test in test_vectors:
-            self.reset()
-            debug("\n----- RESET -----\n")
-            if 'name' in test:
-                debug(f"Running test {test['name']}")
-            if 'input' in test:
-                self.data_in = test['input']
-            got = self.memory = test['in']
-            while self.running:
-                self.go()
-            
-            if 'out' in test and test['out'] != got:
-                want = test['out']
-                print(f"\nWant {want}\nGot  {got}\n")
-                sys.exit(1)
-            if 'output' in test and test['output'] != self.output:
-                want = test['output']
-                got  = self.output
-                print(f"\nWanted out {want}\nGot        {got}\n")
-                sys.exit(2)
-            print(".", end='')
-            sys.stdout.flush()
-        def calculate(noun, verb):
-            self.reset()
-            mem = program.copy()
-            # Apply patches
-            mem[1] = noun
-            mem[2] = verb
-            result = self.run(mem)
-            return(result[0])
-        
-        assert calculate(12,  2) == 3101844
-        assert calculate(84, 78) == 19690720
-        self.reset()
-        
-        print(" done")
-
+    # FIXME: This can be removed
     def explain_opcode(self):
         def id(kind):
             if kind == "0":
@@ -627,18 +342,21 @@ class IntcodeCPU:
         self.tokens = found
     
     def explain(self):
+        if not DEBUG:
+            return
         self.load_tokens()
         parsed = []
         self.token_pointer = 0
         while(self.token_pointer < len(self.tokens)):
+            # FIXME: Clean this up to be more in line with go()
             opcode, mode = self.explain_opcode()
             # print(f"token: {self.token_pointer} opcode: {opcode}")
-            if opcode in symbols:
+            if opcode in self.opcodes:
                 instruction = self.tokens[self.token_pointer].copy()
-                instruction["name"] = symbols[opcode]["name"]
+                instruction["name"] = self.opcodes[opcode].name
                 instruction["type"] = "Instruction"
                 parsed.append(instruction.copy())
-                parameters = symbols[opcode]["parameters"]
+                parameters = self.opcodes[opcode].parameters
                 for parameter_number, parameter in enumerate(parameters):
                     offset = self.token_pointer + parameter_number + 1
                     # FIXME
@@ -647,10 +365,13 @@ class IntcodeCPU:
                     token = self.tokens[offset].copy()
                     token["type"] = "Parameter"
                     if "mode" not in token:
-                        token["mode"] = mode[parameter_number]
-                    parsed.append({**token, **parameter})
+                        token["mode"] = parameter.mode
+                    if "name" not in token:
+                        token["name"] = parameter.name
+                    # parsed.append({**token, **parameter})
+                    parsed.append(token)
 
-                offset = 1 + len(symbols[opcode]["parameters"])
+                offset = 1 + len(self.opcodes[opcode].parameters)
                 self.token_pointer += offset
             else:
                 instruction = self.tokens[self.token_pointer].copy()
@@ -661,7 +382,7 @@ class IntcodeCPU:
 
 
         print(f"Input:         {self.data_in}")
-        print(f"Output:        {self.output}")
+        print(f"Output:        {self.data_out}")
         print(f"Relative Base: {self.relative_base}")
         print("Ip Adr Value      h Name       Extra")
         print("-- --- ---------- - ---------- --------------------")
@@ -696,6 +417,9 @@ class IntcodeCPU:
             i["prefix"] = ""
             if i["address"] == self.instruction_pointer:
                 i["prefix"] = ">"
+
+            if "name" not in i:
+                i["name"] = "UHHH"
                 
             out = "{prefix: >2} {address: >3} {value: >10} {type_hint} {name: <10} {extra}".format(**i)
             if i["type"] == "Instruction":
@@ -710,110 +434,117 @@ class IntcodeCPU:
         print("-- --- ---------- - ---------- --------------------")
         
 
+    def load_instruction(self):
+        def id(kind):
+            if kind == "0":
+                return "Position"
+            elif kind == "1":
+                return "Immediate"
+            elif kind == "2":
+                return "Relative"
+            else:
+                return "Unknown"
+        raw_opcode = self.memory[self.instruction_pointer]
+        abcde = str(raw_opcode)
+        while(len(abcde) < 5):
+            abcde = "0" + abcde
+        opcode = int(abcde[3:])
+        if opcode in self.opcodes:
+            instruction = self.opcodes[opcode]
+        else:
+            print(f"Unrecognized opcode: {opcode}")
+            sys.exit(100)
+
+        self.instruction_pointer += 1
+        mode = [id(x) for x in list(abcde[0:3])]
+        for index, parameter in enumerate(instruction.parameters):
+            address = 0
+            parameter.mode = mode.pop()
+            if parameter.mode == "Immediate":
+                address = self.instruction_pointer
+            elif parameter.mode == "Position":
+                address = self.memory[self.instruction_pointer]
+            elif parameter.mode == "Relative":
+                value = self.memory[self.instruction_pointer]
+                address = self.relative_base + value
+            else:
+                print("Unable to determine mode")
+                sys.exit(100)
+            if address >= len(self.memory):
+                size = address - len(self.memory) + 2
+                debug(f"Extending memory by: {size}")
+                padding = [0 for i in range(size)]
+                self.memory += padding
+            if parameter.kind == "Output":
+                instruction.param[parameter.name] = address
+            else:
+                instruction.param[parameter.name] = self.memory[address]
+            self.instruction_pointer += 1
+        return instruction
+
+
     def run(self, memory):
         self.memory = memory
-        debug("Loaded memory")
-        self.dump_memory()
         return self.go()
+
 
     def go(self):
         while(self.running):
-            opcode, mode = self.load_opcode()
-
-            if opcode == 99:
-                self.running = False
-                continue
-
-            debug(f"ip: {self.instruction_pointer}\t raw opcode: {self.memory[self.instruction_pointer]}\t mode {mode}")
-            self.dump_memory()
-            if opcode == 1:   # Add
-                a, b, target = self.load_params(mode=mode)
-                self.extend(target)
-                self.memory[target] = a + b
-                debug(f"ADD: {a} + {b} set {target} to {self.memory[target]}")
-                self.instruction_pointer += self.offset
-
-            elif opcode == 2: # Multiply
-                a, b, target = self.load_params(mode=mode)
-                self.extend(target)
-                self.memory[target] = a * b
-                self.instruction_pointer += self.offset
-
-            elif opcode == 3: # Read
-                if mode[1] == RELATIVE_MODE:
-                    target = self.relative_base
-                else:
-                    mode[1] = IMMEDIATE_MODE
-                    target = self.load_params(num=1, mode=mode)
-                val = self.data_in.pop(0)
-                self.extend(target)
-                self.memory[target] = val
-                debug(f"stored {val} at {target}")
-                self.instruction_pointer += self.offset
-
-            elif opcode == 4: # Write
-                val = self.load_params(num=1, mode=mode)
-                output = val
-                self.output.append(output)
-                if self.show_output:
-                    print(output)
-                    debug(f"wrote output: {output}")
-                self.instruction_pointer += self.offset
+            self.explain()
+            instruction = self.load_instruction()
+            instruction.cpu = self
+            instruction.op()
+            if self.pause:
+                self.pause = False
                 return self.memory
-
-            elif opcode == 5: # jump-if-true
-                check, jump_to = self.load_params(num=2, mode=mode)
-                debug(f"{check} != 0 (jnz)")
-                loc = self.instruction_pointer + self.offset
-                if check != 0:
-                    loc = jump_to
-                debug(f"... ip set to {loc}")
-                self.instruction_pointer = loc
-
-            elif opcode == 6: # jump-if-false
-                check, jump_to = self.load_params(num=2, mode=mode)
-                debug(f"{check} == 0 (jz)")
-                loc = self.instruction_pointer + self.offset
-                if check == 0:
-                    loc = jump_to
-                debug(f"... ip set to {loc}")
-                self.instruction_pointer = loc
-
-            elif opcode == 7: # less than
-                a, b, target = self.load_params(num=3, mode=mode)
-                value = 0
-                if a < b:
-                    value = 1
-                debug(f"{a} < {b} writing {value} to {target}")
-                self.memory[target] = value
-                self.instruction_pointer += self.offset
-
-            elif opcode == 8: # equals
-                a, b, target = self.load_params(num=3, mode=mode)
-                self.extend(target)
-                value = 0
-                if a == b:
-                    value = 1
-                debug(f"{a} == {b} writing {value} to {target}")
-                self.memory[target] = value
-                self.instruction_pointer += self.offset
-
-            elif opcode == 9: # Relative base
-                base = self.load_params(num=1, mode=mode)
-                self.relative_base += base
-                debug(f"set relative base to: {self.relative_base}")
-                self.instruction_pointer += self.offset
-
-            else:
-                print("Parse error!")
-                sys.exit(101)
         return self.memory
+
+            
+    def post(self):
+        print("Power on self test .", end='')
+        sys.stdout.flush()
+        for test in test_vectors:
+            self.reset()
+            debug("\n----- RESET -----\n")
+            if 'name' in test:
+                debug(f"Running test {test['name']}")
+            if 'input' in test:
+                self.data_in = test['input']
+            got = self.memory = test['in']
+            debug(f"Test input: {got}")
+            while self.running:
+                self.go()
+            
+            if 'out' in test and test['out'] != got:
+                want = test['out']
+                print(f"\nWant {want}\nGot  {got}\n")
+                sys.exit(1)
+            if 'output' in test and test['output'] != self.data_out:
+                want = test['output']
+                got  = self.data_out
+                print(f"\nWanted out {want}\nGot        {got}\n")
+                sys.exit(2)
+            print(".", end='')
+            sys.stdout.flush()
+        def calculate(noun, verb):
+            self.reset()
+            mem = program.copy()
+            # Apply patches
+            mem[1] = noun
+            mem[2] = verb
+            result = self.run(mem)
+            return(result[0])
+        
+        assert calculate(12,  2) == 3101844
+        print(".", end='')
+        sys.stdout.flush()
+        assert calculate(84, 78) == 19690720
+        print(".", end='')
+        sys.stdout.flush()
+        self.reset()
+        print(" done")
 
 
 if __name__ == "__main__":
-    # cpu = IntcodeCPU()
-    # cpu.post()
-
-    ncpu = TestCPU()
-    ncpu.setup()
-    ncpu.post()
+    cpu = IntcodeCPU()
+    cpu.post()
